@@ -1,0 +1,23 @@
+{
+    "backup_dir": "%USERPROFILE%\\Music\\backup",
+    "install_dir": "%USERPROFILE%\\Music\\usbsnapshot",
+    "wallpaper_filename": "black_wallpaper.png",
+    "shortcut_filename": "fastinit.lnk",
+    "seb_programs": [
+        "SafeExamBrowser.exe",
+        "SafeExamBrowser.Client.exe"
+    ],
+    "seb_main_exe_paths": [
+        "%PROGRAMFILES(x86)%\\SafeExamBrowser\\Application\\SafeExamBrowser.exe",
+        "%PROGRAMFILES%\\SafeExamBrowser\\Application\\SafeExamBrowser.exe"
+    ],
+    "seb_cache_dir": "%USERPROFILE%\\AppData\\Local\\SafeExamBrowser",
+    "seb_config_dir": "%USERPROFILE%\\AppData\\Roaming\\SafeExamBrowser",
+    "seb_config_dir_sub": "SafeExamBrowser",
+    "overlay_target_win_title": "Version",
+    "black_overlay_exe_name": "blackoverlay.exe",
+    "fastinit_exe_name": "fastinit.exe",
+    "old_wallpaper_path": "%USERPROFILE%\\Music\\backup\\old_wallpaper.png",
+    "migrate_only_if_from_usb": true,
+    "create_shelllink_oninstall": true
+}

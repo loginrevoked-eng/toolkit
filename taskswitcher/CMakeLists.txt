@@ -15,33 +15,16 @@ include_directories("${SDL3_ttf_DIR}/include")
 # Link directories for SDL3 libraries (x64 for 64-bit builds)
 link_directories("${SDL3_DIR}/lib/x64" "${SDL3_ttf_DIR}/lib/x64")
 
-# Executable for tasswi.cpp
-add_executable(TaskSwitcher tasswi.cpp)
-target_link_libraries(TaskSwitcher PRIVATE SDL3 shlwapi)
-
-# Executable for switcher_ui.cpp
-add_executable(SwitcherUI switcher_ui.cpp)
-target_link_libraries(SwitcherUI PRIVATE SDL3 SDL3_ttf)
-
-# Executable for main.cpp (combines both modules via includes)
-add_executable(MainApp main.cpp)
-target_link_libraries(MainApp PRIVATE SDL3 SDL3_ttf shlwapi)
+# Main executable
+add_executable(TaskSwitcher main.cpp tracker.cpp ui.cpp logging.cpp)
+target_link_libraries(TaskSwitcher PRIVATE SDL3 SDL3_ttf shlwapi shell32)
 
 # Copy SDL3.dll and SDL3_ttf.dll to build directory after building
-add_custom_command(TARGET SwitcherUI POST_BUILD
+add_custom_command(TARGET TaskSwitcher POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${SDL3_DIR}/lib/x64/SDL3.dll"
-    $<TARGET_FILE_DIR:SwitcherUI>
+    $<TARGET_FILE_DIR:TaskSwitcher>
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${SDL3_ttf_DIR}/lib/x64/SDL3_ttf.dll"
-    $<TARGET_FILE_DIR:SwitcherUI>
-)
-
-add_custom_command(TARGET MainApp POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${SDL3_DIR}/lib/x64/SDL3.dll"
-    $<TARGET_FILE_DIR:MainApp>
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${SDL3_ttf_DIR}/lib/x64/SDL3_ttf.dll"
-    $<TARGET_FILE_DIR:MainApp>
+    $<TARGET_FILE_DIR:TaskSwitcher>
 )

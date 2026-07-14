@@ -1,3 +1,0 @@
-"C:\Program Files\CMake\bin\cmake.exe" -E rm -f CMakeFiles\SwitcherUI.dir/objects.a
-C:\msys64\mingw64\bin\ar.exe qc CMakeFiles\SwitcherUI.dir/objects.a @CMakeFiles\SwitcherUI.dir\objects1.rsp
-C:\msys64\mingw64\bin\c++.exe -Wl,--whole-archive CMakeFiles\SwitcherUI.dir/objects.a -Wl,--no-whole-archive -o SwitcherUI.exe -Wl,--out-implib,libSwitcherUI.dll.a -Wl,--major-image-version,0,--minor-image-version,0 @CMakeFiles\SwitcherUI.dir\linkLibs.rsp

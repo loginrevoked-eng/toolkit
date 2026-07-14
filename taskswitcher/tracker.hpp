@@ -13,6 +13,7 @@ struct WindowInfo {
     HWND hwnd;
     std::wstring title;
     DWORD processId;
+    std::wstring exePath;
     std::string processName;
 };
 
@@ -33,7 +34,7 @@ private:
     bool ctrlPressed = false;
     bool altPressed = false;
 
-    std::function<void(std::vector<std::string>&)> onHotkey;
+    std::function<void(std::vector<WindowInfo>)> onHotkey;
 
     static ForegroundWindowTracker* s_instance;
 
@@ -61,9 +62,11 @@ public:
     ForegroundWindowTracker() = default;
     ~ForegroundWindowTracker();
 
-    void SetHotkeyCallback(std::function<void(std::vector<std::string>&)> callback);
+    void SetHotkeyCallback(std::function<void(std::vector<WindowInfo>)> callback);
     bool RegisterHooks();
     void refreshMru();
+    std::vector<WindowInfo> GetMruWindowsSnapshot();
+    bool ActivateWindow(HWND hwnd);
     void Init();
     void eventLoop();
     void Unhook();

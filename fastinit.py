@@ -1,193 +1,431 @@
-import psutil
-import time
-import keyboard
 import ctypes
 from ctypes import wintypes
+from dataclasses import dataclass
+import json
 import os
-import subprocess
+from pathlib import Path
 import shutil
+import subprocess
+import time
+from typing import Dict, List
+import winreg
+
+from cryptography.fernet import Fernet
+import keyboard
+import psutil
+import requests
+import win32com.client
+
 from taskbar import TaskbarController
 from taskswitcher import CustomTaskSwitcher
 
-FILES = [
-    "blackoverlay.exe",
-    "black_wallpaper.png",
-    "SafeExamBrowser",
-    "fastinit.exe"
-]
 
-usbsnapshotdir = rf"{os.environ['USERPROFILE']}\\Music\\usbsnapshot"
-backupdir = rf"{os.environ['USERPROFILE']}\\Music\\backup"
-wallpaper_path = os.path.join(os.getcwd(), "black_wallpaper.png")
-target_win_title = "Version"
-seb_programs = [
-    "SafeExamBrowser.exe",
-    "SafeExamBrowser.Client.exe"
-]
-lnkfile = rf"{os.getcwd()}\fastinit.lnk"
-
-def hidetaskbar():
-    tb = TaskbarController()
-    tb.hide_taskbar()
-    return tb
-
-def launch_blackoverlay():
-    subprocess.Popen(["blackoverlay.exe", "--target-window-title", target_win_title])
-
-def launch_seb():
-    x86 = rf"{os.environ['PROGRAMFILES(x86)']}\\SafeExamBrowser\\Application\\SafeExamBrowser.exe"
-    x64 = rf"{os.environ['PROGRAMFILES']}\\SafeExamBrowser\\Application\\SafeExamBrowser.exe"
-
-    if os.path.exists(x86):
-        subprocess.Popen([x86])
-    elif os.path.exists(x64):
-        subprocess.Popen([x64])
-    else:
-        print("SafeExamBrowser not found")
+@dataclass
+class Process:
+    pid: int
+    name: str
+    fullpath: str
 
 
-def backupandreplace_config():
-    configpath = rf"{os.environ['USERPROFILE']}\AppData\Roaming\SafeExamBrowser"
-    backup_path = os.path.join(backupdir, "SafeExamBrowser")
+@dataclass
+class FastInitConfig:
+    backup_dir: str
+    install_dir: str
+    wallpaper_filename: str
+    shortcut_filename: str
+    seb_programs: List[str]
+    seb_main_exe_paths: List[str]
+    seb_cache_dir: str
+    seb_config_dir: str
+    seb_config_dir_sub: str
+    overlay_target_win_title: str
+    black_overlay_exe_name: str
+    fastinit_exe_name: str
+    old_wallpaper_path: str
+    migrate_only_if_from_usb: bool = True
+    create_shelllink_oninstall: bool = True
 
-    os.makedirs(backupdir, exist_ok=True)
+    def from_dict(self, _dict: Dict):
+        for key, value in _dict.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
 
-    if os.path.exists(configpath):
-        if os.path.exists(backup_path):
-            shutil.rmtree(backup_path)
-        shutil.move(configpath, backup_path)
+    def from_json(self, json_path: str):
+        try:
+            with open(json_path, "r") as f:
+                _dict = json.load(f)
+            self.from_dict(_dict)
+            return self
+        except FileNotFoundError:
+            print(f"Config file not found: {json_path}")
+            return self
+        except Exception:
+            raise
 
-    shutil.copytree("SafeExamBrowser", configpath)
-
-def delete_sebcache():
-    sebcachepath = rf"{os.environ['USERPROFILE']}\\AppData\\Local\\SafeExamBrowser"
-    if os.path.exists(sebcachepath):
-        shutil.rmtree(sebcachepath)
-
-def set_wallpaper(image_path):
-    if not os.path.exists(image_path):
-        print("iamge doesnt exist or not found")
-    return bool(ctypes.windll.user32.SystemParametersInfoW(20, 0, image_path, 3))
-
-
-
-def autohide_taskbar(enable=True):
-    ABM_SETSTATE = 0xB
-    ABS_AUTOHIDE = 0x1
-
-    class APPBARDATA(ctypes.Structure):
-        _fields_ = [
-            ("cbSize", wintypes.DWORD),
-            ("hWnd", wintypes.HWND),
-            ("uCallbackMessage", wintypes.UINT),
-            ("uEdge", wintypes.UINT),
-            ("rc", wintypes.RECT),
-            ("lParam", wintypes.LPARAM),
-        ]
-
-    hwnd = ctypes.windll.user32.FindWindowW("Shell_TrayWnd", None)
-    abd = APPBARDATA()
-    abd.cbSize = ctypes.sizeof(APPBARDATA)
-    abd.hWnd = hwnd
-    abd.lParam = ABS_AUTOHIDE if enable else 0
-    return bool(ctypes.windll.shell32.SHAppBarMessage(ABM_SETSTATE, ctypes.byref(abd)))
-
-
-def process_isrunning(name, snapshot=None):
-    snapshot = snapshot or psutil.process_iter(['pid', 'name'])
-    for i, p in enumerate(snapshot):
-        if name.lower() in p.info['name'].lower():
-            return True
-    return False
-
-
-def hide_desktop_icons(hide=True):
-    SW_HIDE = 0
-    SW_SHOW = 5
-
-    progman = ctypes.windll.user32.FindWindowW("Progman", None)
-    defview = ctypes.windll.user32.FindWindowExW(progman, None, "SHELLDLL_DefView", None)
-    listview = ctypes.windll.user32.FindWindowExW(defview, None, "SysListView32", None)
-
-    return bool(ctypes.windll.user32.ShowWindow(listview, SW_HIDE if hide else SW_SHOW))
-
-def show_desktop_icons():
-    SW_SHOW = 5
-
-    progman = ctypes.windll.user32.FindWindowW("Progman", None)
-    defview = ctypes.windll.user32.FindWindowExW(progman, None, "SHELLDLL_DefView", None)
-    listview = ctypes.windll.user32.FindWindowExW(defview, None, "SysListView32", None)
-
-    return bool(ctypes.windll.user32.ShowWindow(listview, SW_SHOW))
-
-def kill_task(name):
-    for p in psutil.process_iter(['pid', 'name']):
-        if name.lower() in p.info['name'].lower():
-            p.kill()
-
-def start_taskswitcher():
-    ts = CustomTaskSwitcher()
-    ts.register()
-    return ts
-
-def copy_all():
-    os.makedirs(usbsnapshotdir, exist_ok=True)
-    if backupdir in os.getcwd():
-        return
-    for file in FILES:
-        if not os.path.exists(file):
-            print(f"File {file} not found")
-            continue
-        if os.path.isdir(file):
-            if os.path.exists(os.path.join(usbsnapshotdir, file)):
-                shutil.rmtree(os.path.join(usbsnapshotdir, file))
-            shutil.copytree(file, os.path.join(usbsnapshotdir, file))
+    def from_restapi(self, api_url: str, headers=None):
+        response = None
+        if headers:
+            try:
+                response = requests.get(api_url, headers=headers)
+            except Exception as e:
+                print(f"Failed to fetch config from {api_url}: {e}")
+                return self
         else:
-            shutil.copy2(file, os.path.join(usbsnapshotdir, file))
+            try:
+                response = requests.get(api_url)
+            except Exception as e:
+                print(f"Failed to fetch config from {api_url}: {e}")
+                return self
+        if response and response.status_code == 200:
+            _dict = response.json()
+            self.from_dict(_dict)
+        return self
 
-def add_to_user_startmenu():
-    if backupdir in os.getcwd():
-        return
-    startmenu_path = rf"{os.environ['USERPROFILE']}\AppData\Roaming\Microsoft\Windows\Start Menu\Programs"
-    if os.path.exists(lnkfile):
-        shutil.copy2(lnkfile, startmenu_path)
-    
-def cleanup(tb):
-    configpath = rf"{os.environ['USERPROFILE']}\AppData\Roaming\SafeExamBrowser"
-    backup_path = os.path.join(backupdir, "SafeExamBrowser")
+    def from_encrypted_json(self, json_path: str, key: bytes):
+        with open(json_path, "rb") as f:
+            encrypted_data = f.read()
 
-    os.makedirs(backupdir, exist_ok=True)
+        decrypted_data = Fernet(key).decrypt(encrypted_data)
+        _dict = json.loads(decrypted_data)
+        self.from_dict(_dict)
+        return self
 
-    if os.path.exists(backup_path):
-        if os.path.exists(configpath):
-            shutil.rmtree(configpath)
-        shutil.copytree(backup_path, configpath)
-    tb.show_taskbar()
-    kill_task("blackoverlay.exe")
-    print("Now please terminate the SEB manuallly with a password, press enter after doing so")
-    time.sleep(5)
-    if not any([process_isrunning(seb_program) for seb_program in seb_programs]):
-        launch_seb()
+
+class WinSysSettings:
+    def __init__(self):
+        self.taskbar_controller = TaskbarController()
+
+    def save_current_wallpaper(self, dst: str):
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Control Panel\Desktop")
+        wallpaper_path, _ = winreg.QueryValueEx(key, "WallPaper")
+        winreg.CloseKey(key)
+        if os.path.exists(dst):
+            os.remove(dst)
+        shutil.copy2(wallpaper_path, dst)
+
+    def restore_wallpaper(self, old_wallpaper_path: str):
+        if os.path.exists(old_wallpaper_path):
+            self.set_wallpaper(old_wallpaper_path)
+            os.remove(old_wallpaper_path)
+
+    def set_wallpaper(self, wallpaper_path: str):
+        if not os.path.exists(wallpaper_path):
+            print("image doesnt exist or not found")
+        return bool(
+            ctypes.windll.user32.SystemParametersInfoW(20, 0, wallpaper_path, 3)
+        )
+
+    def hide_taskbar(self):
+        SW_HIDE = 0
+
+        progman = ctypes.windll.user32.FindWindowW("Progman", None)
+        defview = ctypes.windll.user32.FindWindowExW(
+            progman, None, "SHELLDLL_DefView", None
+        )
+        listview = ctypes.windll.user32.FindWindowExW(
+            defview, None, "SysListView32", None
+        )
+
+        return bool(ctypes.windll.user32.ShowWindow(listview, SW_HIDE))
+
+    def show_taskbar(self):
+        SW_SHOW = 5
+
+        progman = ctypes.windll.user32.FindWindowW("Progman", None)
+        defview = ctypes.windll.user32.FindWindowExW(
+            progman, None, "SHELLDLL_DefView", None
+        )
+        listview = ctypes.windll.user32.FindWindowExW(
+            defview, None, "SysListView32", None
+        )
+
+        return bool(ctypes.windll.user32.ShowWindow(listview, SW_SHOW))
+
+    def hide_desktop_icons(self):
+        self.taskbar_controller.hide_taskbar()
+
+    def show_desktop_icons(self):
+        self.taskbar_controller.show_taskbar()
+
+
+class FileManager:
+    def __init__(self, config: FastInitConfig):
+        self.config = config
+
+    def backup_SebConfig(self):
+        dst = os.path.expandvars(
+            str(Path(self.config.backup_dir) / self.config.seb_config_dir_sub)
+        )
+        src = os.path.expandvars(self.config.seb_config_dir)
+        os.makedirs(self.config.backup_dir, exist_ok=True)
+
+        if os.path.exists(src):
+            if os.path.exists(dst):
+                shutil.rmtree(dst)
+            shutil.move(src, dst)
+        return dst
+
+    def replace_SebConfig(self):
+        dst = os.path.expandvars(self.config.seb_config_dir)
+        src = os.path.expandvars(
+            str(Path(self.config.install_dir) / self.config.seb_config_dir_sub)
+        )
+        if os.path.exists(src):
+            if os.path.exists(dst):
+                shutil.rmtree(dst)
+            shutil.move(src, dst)
+        return dst
+
+    def delete_SebCache(self):
+        cache_path = os.path.expandvars(self.config.seb_cache_dir)
+        if os.path.exists(cache_path):
+            shutil.rmtree(cache_path)
+
+    def is_Installed(self):
+        return os.getcwd() == os.path.expandvars(self.config.install_dir)
+
+    def shouldMigrate(self):
+        return not self.is_Installed() and (
+            os.getcwd().count("\\") == 1
+            if self.config.migrate_only_if_from_usb
+            else True
+        )
+
+    def migrate_Project(self):
+        if self.shouldMigrate():
+            shutil.copytree(
+                os.getcwd(), os.path.expandvars(self.config.install_dir)
+            )
+
+    def restore_SebConfig(self):
+        dst = os.path.expandvars(self.config.seb_config_dir)
+        src = os.path.expandvars(
+            str(Path(self.config.backup_dir) / self.config.seb_config_dir_sub)
+        )
+        if os.path.exists(src):
+            if os.path.exists(dst):
+                shutil.rmtree(dst)
+            shutil.move(src, dst)
+        return dst
+
+    def resolve_SebPath(self):
+        for path in self.config.seb_main_exe_paths:
+            if os.path.exists(os.path.expandvars(path)):
+                return os.path.expandvars(path)
+        return None
+
+    def addShellLinkToUserStartMenu(self):
+        if not self.is_Installed():
+            shutil.copy2(
+                str(
+                    Path(self.config.install_dir)
+                    / self.config.shortcut_filename
+                ),
+                os.path.join(
+                    os.environ["APPDATA"],
+                    "Microsoft",
+                    "Windows",
+                    "Start Menu",
+                    "Programs",
+                    self.config.shortcut_filename,
+                ),
+            )
+        return True
+
+    def make_UserStartMenuShellLink(self):
+        if not self.is_Installed():
+            shell = win32com.client.Dispatch("WScript.Shell")
+            shortcut = shell.CreateShortcut(
+                os.path.join(
+                    os.environ["APPDATA"],
+                    "Microsoft",
+                    "Windows",
+                    "Start Menu",
+                    "Programs",
+                    self.config.shortcut_filename,
+                )
+            )
+            shortcut.Targetpath = os.path.join(
+                self.config.install_dir, self.config.fastinit_exe_name
+            )
+            shortcut.save()
+        return True
+
+
+class ProcessManager:
+    def __init__(self):
+        pass
+
+    def procDictFromNames(
+        self, procNames: List[str], procs: Dict[str, Process] = None
+    ) -> Dict[str, Process]:
+        if procs is None:
+            procs = {}
+        for proc in psutil.process_iter(["pid", "name", "exe"]):
+            try:
+                pname = proc.info["name"]
+                if pname in procNames and pname not in procs:
+                    procs[pname] = Process(
+                        pid=proc.info["pid"],
+                        name=pname,
+                        fullpath=proc.info["exe"] or "",
+                    )
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return procs
+
+    def kill_Process(self, pid: int = None, pname: str = None) -> bool:
+        killed = False
+        if pid is not None:
+            try:
+                p = psutil.Process(pid)
+                p.kill()
+                killed = True
+            except psutil.NoSuchProcess:
+                pass
+        elif pname is not None:
+            for proc in psutil.process_iter(["pid", "name"]):
+                if proc.info["name"] == pname:
+                    try:
+                        proc.kill()
+                        killed = True
+                    except psutil.NoSuchProcess:
+                        pass
+        return killed
+
+    def start_Process(self, ppath: str) -> bool:
+        try:
+            subprocess.Popen(ppath)
+            return True
+        except Exception:
+            return False
+
+    def process_Exists(self, pname: str) -> bool:
+        for proc in psutil.process_iter(["name"]):
+            if proc.info["name"] == pname:
+                return True
+        return False
+
+    def pid_FromName(self, pname: str) -> int:
+        for proc in psutil.process_iter(["pid", "name"]):
+            if proc.info["name"] == pname:
+                return proc.info["pid"]
+        return -1
+
+    def name_FromPid(self, pid: int) -> str:
+        try:
+            return psutil.Process(pid).name()
+        except psutil.NoSuchProcess:
+            return None
+
+
+def cleanUp(
+    processes: Dict[str, Process],
+    config: FastInitConfig,
+    pm: ProcessManager,
+    ws: WinSysSettings,
+    fm: FileManager,
+):
+    for pname, p in processes.items():
+        try:
+            pm.kill_Process(pid=p.pid)
+        except Exception:
+            print(
+                f"Please kill {pname} manually since it failed to be killed programmatically"
+            )
+            while pm.process_Exists(pname):
+                time.sleep(0.5)
+
+    seb_path = fm.resolve_SebPath()
+    if seb_path:
+        pm.start_Process(seb_path)
+
+    ws.show_taskbar()
+    ws.restore_wallpaper(config.old_wallpaper_path)
+    fm.restore_SebConfig()
+    ws.show_desktop_icons()
+
+
+def main():
+    config = (
+        FastInitConfig(
+            backup_dir=os.path.expandvars(r"%USERPROFILE%\Music\backup"),
+            install_dir=os.path.expandvars(r"%USERPROFILE%\Music\usbsnapshot"),
+            wallpaper_filename="black_wallpaper.png",
+            shortcut_filename="fastinit.lnk",
+            seb_programs=["SafeExamBrowser.exe", "SafeExamBrowser.Client.exe"],
+            seb_main_exe_paths=[
+                r"%PROGRAMFILES(x86)%\SafeExamBrowser\Application\SafeExamBrowser.exe",
+                r"%PROGRAMFILES%\SafeExamBrowser\Application\SafeExamBrowser.exe",
+            ],
+            seb_cache_dir=r"%USERPROFILE%\AppData\Local\SafeExamBrowser",
+            seb_config_dir=r"%USERPROFILE%\AppData\Roaming\SafeExamBrowser",
+            seb_config_dir_sub="SafeExamBrowser",
+            overlay_target_win_title="Version",
+            black_overlay_exe_name="blackoverlay.exe",
+            fastinit_exe_name="fastinit.exe",
+            old_wallpaper_path=os.path.join(
+                os.path.expandvars(r"%USERPROFILE%\Music\backup"),
+                "old_wallpaper.png",
+            ),
+        )
+        .from_json("config.json")
+        .from_restapi("http://localhost:8000/config")
+    )
+
+    pm = ProcessManager()
+    ws = WinSysSettings()
+    fm = FileManager(config)
+
+    active_processes: Dict[str, Process] = {}
+
+    ws.save_current_wallpaper(config.old_wallpaper_path)
+    fm.backup_SebConfig()
+    fm.replace_SebConfig()
+    fm.delete_SebCache()
+
+    ws.set_wallpaper(os.path.join(os.getcwd(), config.wallpaper_filename))
+    ws.hide_taskbar()
+    ws.hide_desktop_icons()
+
+    ts = CustomTaskSwitcher()
+    ts.register(
+        switcher_hotkey="ctrl+alt+s",
+        switch_previous_hotkey="ctrl+alt+p",
+    )
+
+    keyboard.add_hotkey(
+        "ctrl+alt+r",
+        lambda: cleanUp(active_processes, config, pm, ws, fm),
+    )
+    seb_path = fm.resolve_SebPath()
+    if seb_path and pm.start_Process(seb_path):
+        pid = pm.pid_FromName("SafeExamBrowser.exe")
+        active_processes["SafeExamBrowser"] = Process(
+            pid, "SafeExamBrowser.exe", seb_path
+        )
+
+    time.sleep(3)
+
+    overlay_path = os.path.join(os.getcwd(), config.black_overlay_exe_name)
+    if pm.start_Process(
+        f"{overlay_path} --target-window-title {config.overlay_target_win_title}"
+    ):
+        pid = pm.pid_FromName(config.black_overlay_exe_name)
+        active_processes["blackoverlay"] = Process(
+            pid, config.black_overlay_exe_name, overlay_path
+        )
+
+    pm.procDictFromNames(config.seb_programs, active_processes)
+
+    fm.migrate_Project()
+    if config.create_shelllink_oninstall:
+        fm.make_UserStartMenuShellLink()
     else:
-        print("SEB is already running, fucking kill it first")
-        time.sleep(5)
-        if not any([process_isrunning(seb_program) for seb_program in seb_programs]):
-            launch_seb()
-    show_desktop_icons()
-    os._exit(0)
+        fm.addShellLinkToUserStartMenu()
+
+    keyboard.wait()
+
 
 if __name__ == "__main__":
-    backupandreplace_config()
-    delete_sebcache()
-    set_wallpaper(wallpaper_path)
-    autohide_taskbar()
-    hide_desktop_icons()
-    tb = hidetaskbar()
-    ts = start_taskswitcher()
-    keyboard.add_hotkey('ctrl+alt+r', lambda: cleanup(tb))
-    launch_seb()
-    time.sleep(3)
-    launch_blackoverlay()
-    copy_all()
-    add_to_user_startmenu()
-    keyboard.wait()
+    main()

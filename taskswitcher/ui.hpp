@@ -1,17 +1,16 @@
 #ifndef SDL_SELECTOR_UI_HPP
 #define SDL_SELECTOR_UI_HPP
 
-#include <SDL3/SDL.h>
-#include <SDL3_ttf/SDL_ttf.h>
-#include <windows.h>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_events.h>
 #include <SDL3/SDL_init.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <windows.h>
+#include "tracker.hpp"
 
 namespace SDL_SelectorUI {
 
@@ -46,6 +45,16 @@ class SwitcherUI {
 private:
     WindowData windowData;
     ListUI listUI;
+    std::vector<WindowInfo> windowItems;
+    std::unordered_map<std::wstring, SDL_Texture*> iconCache;
+    bool sdlInitialized = false;
+    bool ttfInitialized = false;
+
+    void SetItems(const std::vector<WindowInfo>& items);
+    SDL_Texture* GetIconTexture(const WindowInfo& item);
+    void ClearIconCache();
+    static SDL_Surface* SurfaceFromHICON(HICON icon, int size);
+    static std::string FormatEntry(const WindowInfo& item);
 
 
 public:
@@ -53,12 +62,12 @@ public:
     ~SwitcherUI();
 
     void InitWindow();
-    void Render(std::vector<std::string>* items = nullptr);
+    void Render();
     void Destroy();
     void HandleEvents(SDL_Event* event);
     bool ShouldQuit();
     void FocusKeyboard();
-    void StartLoop(std::vector<std::string>* items = nullptr);
+    int StartLoop(std::vector<WindowInfo>* items = nullptr);
     void SelectViaKeyBoard(int key, ListUI& listUI);
     void SelectViaMouth(int x, int y, ListUI& listUI);
     void SelectHoveredItem(float x, float y, ListUI& listUI);

@@ -1,12 +1,9 @@
 #include "logging.hpp"
 #include "tracker.hpp"
+#include <algorithm>
+#include <thread>
 
 ForegroundWindowTracker* ForegroundWindowTracker::s_instance = nullptr;
-
-void ForegroundWindowTracker::Panic() {
-    Logging::error("Panic mode activated!");
-    std::exit(1);
-}
 
 BOOL CALLBACK ForegroundWindowTracker::EnumWindowsProc(HWND hwnd, LPARAM lParam) {
     auto* self = reinterpret_cast<ForegroundWindowTracker*>(lParam);
@@ -27,11 +24,13 @@ BOOL ForegroundWindowTracker::handleEnumWindow(HWND hwnd) {
     GetWindowThreadProcessId(hwnd, &processId);
 
     std::string processName;
+    std::wstring exePath;
     HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
     if (hProcess) {
         wchar_t imagePath[MAX_PATH];
         DWORD size = MAX_PATH;
         if (QueryFullProcessImageNameW(hProcess, 0, imagePath, &size)) {
+            exePath = imagePath;
             wchar_t* exeName = PathFindFileNameW(imagePath);
             int reqSize = WideCharToMultiByte(CP_UTF8, 0, exeName, -1, NULL, 0, NULL, NULL);
             if (reqSize > 0) {
@@ -43,8 +42,8 @@ BOOL ForegroundWindowTracker::handleEnumWindow(HWND hwnd) {
     }
 
     std::lock_guard<std::mutex> lock(windowsMutex);
-    windows[hwnd] = WindowInfo{ hwnd, title, processId, processName };
-    Logging::info("{}:{}", processName, wstring_to_string(title));
+    windows[hwnd] = WindowInfo{ hwnd, title, processId, exePath, processName };
+    Logging::slopyap("{}:{}", processName, wstring_to_string(title));
     return TRUE;
 }
 
@@ -79,6 +78,7 @@ void ForegroundWindowTracker::handleForegroundChange(DWORD event, HWND hwnd) {
     GetWindowThreadProcessId(hwnd, &processId);
 
     std::wstring processName = L"unknown";
+    std::wstring exePath;
     HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
     if (!hProcess) {
         Logging::debug("Failed to open process {} error:{}", processId, GetLastError());
@@ -86,23 +86,20 @@ void ForegroundWindowTracker::handleForegroundChange(DWORD event, HWND hwnd) {
         wchar_t buffer[MAX_PATH];
         DWORD size = sizeof(buffer) / sizeof(buffer[0]);
         if (QueryFullProcessImageNameW(hProcess, 0, buffer, &size)) {
-            processName = std::wstring(buffer);
+            exePath = buffer;
+            wchar_t* exeName = PathFindFileNameW(buffer);
+            processName = exeName ? exeName : buffer;
         } else {
             Logging::debug("Failed to get process name for process {} error:{}", processId, GetLastError());
         }
         CloseHandle(hProcess);
     }
 
-    Logging::info("Foreground changed to:\n  hwnd={}\n  title={}\n  processId={}\n  processName={}",
+    Logging::slopyap("Foreground changed to:\n  hwnd={}\n  title={}\n  processId={}\n  processName={}",
         (void*)hwnd, wstring_to_string(title), processId, wstring_to_string(processName));
 
-    {
-        std::lock_guard<std::mutex> windowsLock(windowsMutex);
-        windows[hwnd] = WindowInfo{ hwnd, title, processId, wstring_to_string(processName) };
-    }
-
-    std::lock_guard<std::mutex> lock(mruMutex);
-    // move-to-front semantics
+    std::scoped_lock lock(mruMutex, windowsMutex);
+    windows[hwnd] = WindowInfo{ hwnd, title, processId, exePath, wstring_to_string(processName) };
     auto it = std::find(mruList.begin(), mruList.end(), hwnd);
     if (it != mruList.end()) {
         mruList.erase(it);
@@ -123,27 +120,54 @@ std::string ForegroundWindowTracker::formatMruEntryFromWindowInfo(WindowInfo wIn
         wInfo.processName,
         wstring_to_string(wInfo.title)
     );
-    Logging::info("{}", fmt);
+    Logging::slopyap("{}", fmt);
     return fmt;
 }
 
 void ForegroundWindowTracker::populateMruList(){
-    Logging::info("Populating MRU list");
-    std::lock_guard<std::mutex> lockMru(mruMutex);
-    std::lock_guard<std::mutex> lockWindows(windowsMutex);
-    Logging::info("mruList size: {}, windows map size: {}", mruList.size(), windows.size());
+    Logging::slopyap("Populating MRU list");
+    std::scoped_lock lock(mruMutex, windowsMutex);
+    Logging::slopyap("mruList size: {}, windows map size: {}", mruList.size(), windows.size());
     mruStringList.clear();
-    for (auto &hwnd : mruList) {
-        auto found = windows.find(hwnd);
-        if(found != windows.end()) {
-            std::string entry = formatMruEntryFromWindowInfo(found->second);
-            mruStringList.push_back(entry);
-            Logging::info("Added: {}", entry);
-        } else {
-            Logging::info("HWND {} not found in windows map", (void*)hwnd);
+    mruWindows.clear();
+    if (!mruList.empty()) {
+        for (auto &hwnd : mruList) {
+            auto found = windows.find(hwnd);
+            if(found != windows.end()) {
+                std::string entry = formatMruEntryFromWindowInfo(found->second);
+                mruStringList.push_back(entry);
+                mruWindows.push_back(found->second);
+                Logging::slopyap("Added: {}", entry);
+            } else {
+                Logging::slopyap("HWND {} not found in windows map", (void*)hwnd);
+            }
         }
     }
-    Logging::info("Final mruStringList size: {}", mruStringList.size());
+
+    if (mruStringList.empty() && !windows.empty()) {
+        std::vector<WindowInfo> fallbackWindows;
+        fallbackWindows.reserve(windows.size());
+        for (const auto& [hwnd, info] : windows) {
+            (void)hwnd;
+            fallbackWindows.push_back(info);
+        }
+
+        std::sort(fallbackWindows.begin(), fallbackWindows.end(),
+            [](const WindowInfo& a, const WindowInfo& b) {
+                if (a.processName != b.processName) {
+                    return a.processName < b.processName;
+                }
+                return a.title < b.title;
+            });
+
+        for (const auto& info : fallbackWindows) {
+            mruStringList.push_back(formatMruEntryFromWindowInfo(info));
+            mruWindows.push_back(info);
+        }
+
+        Logging::slopyap("mruList was empty; populated {} entries from current windows", mruStringList.size());
+    }
+    Logging::slopyap("Final mruStringList size: {}", mruStringList.size());
 }
 
 LRESULT ForegroundWindowTracker::handleKeyboardEvent(int nCode, WPARAM wParam, LPARAM lParam) {
@@ -160,8 +184,10 @@ LRESULT ForegroundWindowTracker::handleKeyboardEvent(int nCode, WPARAM wParam, L
             if (ctrlPressed && altPressed && kbs->vkCode == 'S') {
                 Logging::info("Hotkey Ctrl+Alt+S pressed - showing MRU list");
                 if (onHotkey) {
+                    Logging::debug("Refreshing MRU on demand");
+                    refreshMru();
                     populateMruList();
-                    onHotkey(mruStringList);
+                    onHotkey(mruWindows);
                 }
             }
         }
@@ -182,7 +208,7 @@ ForegroundWindowTracker::~ForegroundWindowTracker() {
     Unhook();
 }
 
-void ForegroundWindowTracker::SetHotkeyCallback(std::function<void(std::vector<std::string>&)> callback) {
+void ForegroundWindowTracker::SetHotkeyCallback(std::function<void(std::vector<WindowInfo>)> callback) {
     onHotkey = callback;
 }
 
@@ -200,6 +226,7 @@ bool ForegroundWindowTracker::RegisterHooks() {
     );
     if (!eventHook) {
         Logging::error("SetWinEventHook failed");
+        s_instance = nullptr;
         return false;
     }
 
@@ -208,6 +235,7 @@ bool ForegroundWindowTracker::RegisterHooks() {
         Logging::error("SetWindowsHookEx failed for keyboard hook");
         UnhookWinEvent(eventHook);
         eventHook = NULL;
+        s_instance = nullptr;
         return false;
     }
 
@@ -223,6 +251,61 @@ void ForegroundWindowTracker::refreshMru() {
     // handleEnumWindow() takes windowsMutex itself per-entry, so the lock
     // above must not still be held while EnumWindows is running.
     EnumWindows(EnumWindowsProc, reinterpret_cast<LPARAM>(this));
+}
+
+std::vector<WindowInfo> ForegroundWindowTracker::GetMruWindowsSnapshot() {
+    std::scoped_lock lock(mruMutex, windowsMutex);
+    return mruWindows;
+}
+
+bool ForegroundWindowTracker::ActivateWindow(HWND hwnd) {
+    if (!IsWindow(hwnd)) {
+        Logging::error("ActivateWindow called with invalid hwnd {}", (void*)hwnd);
+        return false;
+    }
+
+    Logging::info("Activating window hwnd={}", (void*)hwnd);
+
+    DWORD targetPid = 0;
+    DWORD targetThreadId = GetWindowThreadProcessId(hwnd, &targetPid);
+    HWND foregroundWindow = GetForegroundWindow();
+    DWORD foregroundThreadId = foregroundWindow ? GetWindowThreadProcessId(foregroundWindow, nullptr) : 0;
+    DWORD currentThreadId = GetCurrentThreadId();
+
+    bool attachedTarget = false;
+    bool attachedForeground = false;
+
+    if (targetThreadId != 0 && targetThreadId != currentThreadId) {
+        if (AttachThreadInput(currentThreadId, targetThreadId, TRUE)) {
+            attachedTarget = true;
+        }
+    }
+
+    if (foregroundThreadId != 0 && foregroundThreadId != currentThreadId && foregroundThreadId != targetThreadId) {
+        if (AttachThreadInput(currentThreadId, foregroundThreadId, TRUE)) {
+            attachedForeground = true;
+        }
+    }
+
+    if (IsIconic(hwnd)) {
+        ShowWindowAsync(hwnd, SW_RESTORE);
+    } else {
+        ShowWindowAsync(hwnd, SW_SHOW);
+    }
+
+    BringWindowToTop(hwnd);
+    SetForegroundWindow(hwnd);
+    SetActiveWindow(hwnd);
+    SetFocus(hwnd);
+
+    if (attachedForeground) {
+        AttachThreadInput(currentThreadId, foregroundThreadId, FALSE);
+    }
+    if (attachedTarget) {
+        AttachThreadInput(currentThreadId, targetThreadId, FALSE);
+    }
+
+    return true;
 }
 
 void ForegroundWindowTracker::Init(){
