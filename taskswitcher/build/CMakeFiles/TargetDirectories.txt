@@ -1,0 +1,5 @@
+C:/Users/Tempuser/Desktop/toolkit/taskswitcher/build/CMakeFiles/TaskSwitcher.dir
+C:/Users/Tempuser/Desktop/toolkit/taskswitcher/build/CMakeFiles/SwitcherUI.dir
+C:/Users/Tempuser/Desktop/toolkit/taskswitcher/build/CMakeFiles/MainApp.dir
+C:/Users/Tempuser/Desktop/toolkit/taskswitcher/build/CMakeFiles/edit_cache.dir
+C:/Users/Tempuser/Desktop/toolkit/taskswitcher/build/CMakeFiles/rebuild_cache.dir

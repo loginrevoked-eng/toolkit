@@ -1,0 +1,20 @@
+[
+{
+  "directory": "C:/Users/Tempuser/Desktop/toolkit/taskswitcher/build",
+  "command": "C:\\msys64\\mingw64\\bin\\c++.exe  @CMakeFiles/TaskSwitcher.dir/includes_CXX.rsp -std=gnu++17 -o CMakeFiles\\TaskSwitcher.dir\\tasswi.cpp.obj -c C:\\Users\\Tempuser\\Desktop\\toolkit\\taskswitcher\\tasswi.cpp",
+  "file": "C:/Users/Tempuser/Desktop/toolkit/taskswitcher/tasswi.cpp",
+  "output": "CMakeFiles/TaskSwitcher.dir/tasswi.cpp.obj"
+},
+{
+  "directory": "C:/Users/Tempuser/Desktop/toolkit/taskswitcher/build",
+  "command": "C:\\msys64\\mingw64\\bin\\c++.exe  @CMakeFiles/SwitcherUI.dir/includes_CXX.rsp -std=gnu++17 -o CMakeFiles\\SwitcherUI.dir\\switcher_ui.cpp.obj -c C:\\Users\\Tempuser\\Desktop\\toolkit\\taskswitcher\\switcher_ui.cpp",
+  "file": "C:/Users/Tempuser/Desktop/toolkit/taskswitcher/switcher_ui.cpp",
+  "output": "CMakeFiles/SwitcherUI.dir/switcher_ui.cpp.obj"
+},
+{
+  "directory": "C:/Users/Tempuser/Desktop/toolkit/taskswitcher/build",
+  "command": "C:\\msys64\\mingw64\\bin\\c++.exe  @CMakeFiles/MainApp.dir/includes_CXX.rsp -std=gnu++17 -o CMakeFiles\\MainApp.dir\\main.cpp.obj -c C:\\Users\\Tempuser\\Desktop\\toolkit\\taskswitcher\\main.cpp",
+  "file": "C:/Users/Tempuser/Desktop/toolkit/taskswitcher/main.cpp",
+  "output": "CMakeFiles/MainApp.dir/main.cpp.obj"
+}
+]
